@@ -1,0 +1,13 @@
+{
+  // Production build: compiles src/ to dist/ (dist/server.js sits at the same depth as src/server.ts,
+  // so paths built from import.meta.dirname resolve identically in dev and in production).
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "rootDir": "src",
+    "outDir": "dist",
+    "sourceMap": true
+  },
+  "include": ["src"],
+  "exclude": ["src/client"]
+}

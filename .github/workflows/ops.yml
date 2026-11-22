@@ -1,0 +1,55 @@
+name: Ops (manual)
+
+# Run from the Actions tab: "Ops (manual)" -> "Run workflow", choose the task. It runs against production,
+# the only deployed environment.
+#   verify-data           row counts + content checksums (no personal data, no secrets). Run it before and
+#                         after a migration to prove existing data survived.
+#   seed                  demo data (idempotent: does nothing if the environment is already seeded)
+#   reset-demo-passwords  re-applies the SEED_*_PASSWORD secrets to the existing demo users
+# Database credentials never leave GitHub's secret store.
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: What to run
+        type: choice
+        options: [verify-data, seed, reset-demo-passwords]
+        default: verify-data
+
+permissions:
+  contents: read
+
+jobs:
+  ops:
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: deploy-production # never overlaps a deploy
+      cancel-in-progress: false
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL_DIRECT }} # from the production GitHub environment
+      JWT_SECRET: ops-job-does-not-issue-tokens-placeholder-value
+      NODE_ENV: production
+      SEED_ADMIN_PASSWORD: ${{ secrets.SEED_ADMIN_PASSWORD }}
+      SEED_MEMBER_PASSWORD: ${{ secrets.SEED_MEMBER_PASSWORD }}
+      SEED_VIEWER_PASSWORD: ${{ secrets.SEED_VIEWER_PASSWORD }}
+      SEED_OTHER_PASSWORD: ${{ secrets.SEED_OTHER_PASSWORD }}
+    steps:
+      - name: Check the environment is configured
+        run: |
+          if [ -z "$DATABASE_URL" ]; then echo "::error::No database secret in the production environment"; exit 1; fi
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - run: npm ci --include=dev # NODE_ENV=production would skip tsx, which runs the TypeScript scripts
+      - name: Verify data
+        if: inputs.task == 'verify-data'
+        run: npm run verify:data
+      - name: Seed demo data
+        if: inputs.task == 'seed'
+        run: npm run seed && npm run verify:data
+      - name: Reset demo-login passwords
+        if: inputs.task == 'reset-demo-passwords'
+        run: npm run reset:demo-passwords

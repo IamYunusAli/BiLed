@@ -1,0 +1,16 @@
+{
+  // The browser script: src/client/app.ts -> public/app.js (a classic script, no modules, no bundler).
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ES2022",
+    "moduleResolution": "Bundler",
+    "types": [],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "skipLibCheck": true,
+    "rootDir": "src/client",
+    "outDir": "public"
+  },
+  "include": ["src/client"]
+}
