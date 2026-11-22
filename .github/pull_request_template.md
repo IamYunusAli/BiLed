@@ -10,4 +10,5 @@
 
 ## After merge
 
-- [ ] Deploy job green for the target environment, and `/healthz` shows the new commit
+- [ ] Into `development` or `staging`: **Test** green on the branch after merge (these branches are not deployed)
+- [ ] Into `main`: **Deploy to production** green, and `/healthz` shows the new commit

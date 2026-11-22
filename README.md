@@ -2,13 +2,9 @@
 
 A small **multi-tenant project tracker**. Several organizations share one app and one database, and each organization only ever sees its own projects, tasks and members. Projects have a budget in Ethiopian Birr (ETB); tasks have an estimated cost, an optional actual cost, a priority, an assignee and a due date. Every project shows **budget vs committed vs actually spent** and a status: **On track**, **At risk** or **Overrun**.
 
-| Environment | Branch | URL |
-|---|---|---|
-| **Production** | `main` | https://daps-tracker.onrender.com |
-| Staging | `staging` | https://daps-tracker-staging.onrender.com |
-| Development | `development` | https://daps-tracker-dev.onrender.com |
+**Live:** https://daps-tracker.onrender.com (production, deployed from `main`).
 
-All three run on Render's free tier: the first request after about 15 minutes idle takes 30–60 s while the instance wakes up. Demo logins are sent separately; seed passwords are GitHub secrets, never committed.
+It runs on Render's free tier: the first request after about 15 minutes idle takes 30–60 s while the instance wakes up. Demo logins are sent separately; seed passwords are GitHub secrets, never committed.
 
 ## What it does
 
@@ -28,7 +24,7 @@ API client (Bearer JWT) ──────────┴─► Express 5 on Ren
                                         loadMembership  ◄── the tenant boundary
                                         routes (TSX pages + JSON API) → services → repositories (SQL)
                                                                                      │ TLS
-                                                                     Neon PostgreSQL (one branch per environment)
+                                                                     Neon PostgreSQL (production branch)
 ```
 
 - **One service, server-rendered.** Pages and API share the same services and repositories, so authorization exists exactly once. The browser never filters data; even the priority filter runs in SQL.
@@ -39,21 +35,20 @@ API client (Bearer JWT) ──────────┴─► Express 5 on Ren
 
 Code map: `src/middleware/tenant.ts` (membership check) · `src/domain.ts` (roles, `OrgId`, `Tenant`) · `src/repositories/*` (all SQL) · `src/services/*` (rules and activity-log entries) · `src/routes/{api,web}.ts` · `src/views/` (TSX pages, partials, JSX runtime) · `src/client/` (browser script) · `migrations/` · `test/` · `scripts/`.
 
-## Branches and environments
+## Branches and deployment
 
 ```
 feature/* | release/*  ──PR──►  development  ──PR──►  staging  ──PR──►  main
-                                    │                    │                │
-                                    ▼                    ▼                ▼
-                               Development           Staging          Production
-                          (Neon "development",  (Neon "staging",   (Neon "production",
-                           daps-tracker-dev)     daps-tracker-staging)  daps-tracker)
+                                 tested,             tested,            │ tested, then deployed
+                                 not deployed        not deployed       ▼
+                                                                    Production
+                                                         (Neon "production", Render daps-tracker)
 ```
 
 - Work happens on a `feature/*` (or `fix/*`, `hotfix/*`, `release/*`) branch and reaches `development` **only through a pull request**.
-- A PR is merged only when CI is green. Branch protection on `development`, `staging` and `main` requires a PR and the **Test** and **Promotion rules** checks; direct pushes are blocked.
+- A PR is merged only when CI is green: every PR shows the **Test** and **Promotion rules** checks. (Enforcing this with branch protection needs a public repository or GitHub Pro; on this private Free repo the rule is followed by convention.)
 - Promotion always goes **development → staging → main**. The **Promotion rules** check fails any PR whose source branch isn't the allowed one (for example, a feature branch straight into `main`).
-- Each environment has **its own database and its own Render service**. The Neon `development` and `staging` branches were created from production, so staging runs every migration against production-shaped data before production does.
+- **Only `main` is deployed**, to production. `development` and `staging` are integration branches: every push and PR on them runs the full **Test** job (typecheck, build, migrations up, down and up again, all tests), but nothing is deployed from them. A change reaches users only after passing that gate three times, once per promotion.
 
 ## CI/CD pipeline (`.github/workflows/ci-cd.yml`)
 
@@ -70,19 +65,19 @@ On **every push and every pull request**, the **Test** job:
 
 On **every pull request**, the **Promotion rules** job checks the source branch: `staging` only from `development`, `main` only from `staging`, `development` only from `feature/*`, `fix/*`, `hotfix/*` or `release/*`.
 
-On a **push to `development`, `staging` or `main`** (which only happens by merging a green PR), the **Deploy** job runs with `needs: Test`, so it **never starts unless every test passed**. It runs in that branch's GitHub Environment and can only read that environment's secrets:
+On a **push to `main`** (which only happens by merging a green PR from `staging`), the **Deploy to production** job runs with `needs: Test`, so it **never starts unless every test passed**. It runs in the `production` GitHub Environment, the only place the production secrets exist:
 1. Checks the environment is configured.
-2. Applies migrations to that environment's Neon branch through the **direct** connection (the pooled connection can't hold the migration lock).
-3. Calls that environment's Render deploy hook with `ref=<this commit's SHA>`, so Render deploys exactly the tested commit.
+2. Applies migrations to the production Neon branch through the **direct** connection (the pooled connection can't hold the migration lock).
+3. Calls the Render deploy hook with `ref=<this commit's SHA>`, so Render deploys exactly the tested commit.
 4. Polls `/healthz` until it reports that SHA (`RENDER_GIT_COMMIT`), then runs a smoke test.
 
-**Render auto-deploy is off on all three services**, so the only way code reaches any environment is this job. Each service builds with `npm ci --include=dev && npm run build` and starts with `node dist/server.js`; `/healthz` is its health check.
+**Render auto-deploy is off**, so the only way code reaches production is this job. The service builds with `npm ci --include=dev && npm run build` and starts with `node dist/server.js`; `/healthz` is its health check.
 
-**Ops (manual)** (`.github/workflows/ops.yml`) runs `verify-data`, `seed` or `reset-demo-passwords` against a chosen environment, with the same secrets.
+**Ops (manual)** (`.github/workflows/ops.yml`) runs `verify-data`, `seed` or `reset-demo-passwords` against production, with the same secrets.
 
 | GitHub Environment | Secrets | Variable |
 |---|---|---|
-| `development`, `staging`, `production` | `DATABASE_URL_DIRECT`, `RENDER_DEPLOY_HOOK_URL` | `APP_URL` |
+| `production` | `DATABASE_URL_DIRECT`, `RENDER_DEPLOY_HOOK_URL` | `APP_URL` |
 | repository-wide | `SEED_ADMIN_PASSWORD`, `SEED_MEMBER_PASSWORD` (optional `SEED_VIEWER_PASSWORD`, `SEED_OTHER_PASSWORD`) | |
 
 ## Migrations
@@ -104,9 +99,9 @@ On a **push to `development`, `staging` or `main`** (which only happens by mergi
 3. **Tighten:** `DEFAULT 'medium'`, `NOT NULL`, `CHECK (priority IN ('low','medium','high'))`.
 4. **Index:** `(org_id, project_id, priority)` for the filter.
 
-All four steps run in **one transaction**: if any fails, nothing changes and the deploy step never runs. Old application code keeps working after it (it doesn't read the column, and inserts get the default), so code and schema can be rolled back independently. The backfill on pre-existing tasks is proven on every pipeline run by `check:migrations`, and every migration reaches staging (a copy of production data) before production.
+All four steps run in **one transaction**: if any fails, nothing changes and the deploy step never runs. Old application code keeps working after it (it doesn't read the column, and inserts get the default), so code and schema can be rolled back independently. The backfill on pre-existing tasks is proven on every pipeline run by `check:migrations`, on `development`, `staging` and `main` alike, before the deploy job may start.
 
-**Proving live data survives a migration:** run **Ops → verify-data** on an environment before and after the deploy. It prints row counts and content checksums, which must be identical. Production after migrate and seed: 3 users, 2 organizations, 3 memberships, 2 projects, 7 tasks (high 3 · medium 3 · low 1).
+**Proving live data survives a migration:** run **Ops → verify-data** before and after the deploy. It prints row counts and content checksums, which must be identical. Production after migrate and seed: 3 users, 2 organizations, 3 memberships, 2 projects, 7 tasks (high 3 · medium 3 · low 1).
 
 **Rollback plan:**
 
@@ -114,7 +109,7 @@ All four steps run in **one transaction**: if any fails, nothing changes and the
 |---|---|
 | A migration fails in the pipeline | Its transaction rolls back; the deploy step never runs; the old code keeps serving. Fix forward through a new PR. |
 | New code is broken, schema is fine | Redeploy the previous commit (`<deploy hook>&ref=<previous sha>`, or Render → Rollback). Old code ignores the extra columns. |
-| The schema change itself must go | 1) Deploy the previous code. 2) `npm run migrate:down` against that environment's direct URL. ⚠️ Priorities set since the migration are lost, so export them first: `COPY (SELECT id, priority FROM tasks) TO STDOUT`. |
+| The schema change itself must go | 1) Deploy the previous code. 2) `npm run migrate:down` against the production direct URL. ⚠️ Priorities set since the migration are lost, so export them first: `COPY (SELECT id, priority FROM tasks) TO STDOUT`. |
 | Data damage | Restore from a Neon snapshot branch taken just before the migration. |
 
 ## How tenant isolation is enforced
@@ -160,9 +155,9 @@ Money is stored as integer santim (1 ETB = 100 santim) and formatted as `ETB 0,0
 ## Decisions
 
 - **Explicit org-scoped SQL plus composite foreign keys, instead of ORM scopes or Row-Level Security.** Isolation is readable in every query, the database itself rejects cross-org links, and it's easy to walk through. RLS is the next layer to add.
-- **Migrations run from the pipeline, before a commit-pinned deploy hook, with Render auto-deploy off; and every change is promoted development → staging → main.** The test gate, the schema change and the "is it live" check sit in one auditable run per environment. A failed migration never ships code, and staging rehearses each migration on production-shaped data first.
+- **Migrations run from the pipeline, before a commit-pinned deploy hook, with Render auto-deploy off; every change is promoted development → staging → main, and only main deploys.** The test gate, the schema change and the "is it live" check sit in one auditable run. A failed migration never ships code, and one production environment keeps the free-tier footprint (and the secrets) to a single place.
 - Also:
-  - Neon instead of Render Postgres (Render's free database is deleted after 30 days, and Neon branches give each environment its own copy cheaply).
+  - Neon instead of Render Postgres (Render's free database is deleted after 30 days; Neon branches also make a throwaway copy of production cheap when a risky migration needs rehearsing).
   - TypeScript in strict mode, compiled with plain `tsc` (no bundler), so `dist/` mirrors `src/` file for file. Server-side TSX instead of a template engine, so views are type-checked like the rest of the code.
   - Money as integer santim.
   - 404 instead of 403 for outsiders.
