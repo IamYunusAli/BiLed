@@ -2,7 +2,7 @@
 
 A small **multi-tenant project tracker**. Several organizations share one app and one database, and each organization only ever sees its own projects, tasks and members. Projects have a budget in Ethiopian Birr (ETB); tasks have an estimated cost, an optional actual cost, a priority, an assignee and a due date. Every project shows **budget vs committed vs actually spent** and a status: **On track**, **At risk** or **Overrun**.
 
-**Live:** https://daps-tracker.onrender.com (production, deployed from `main`).
+**Live:** biled.onrender.com (production, deployed from `main`).
 
 It runs on Render's free tier: the first request after about 15 minutes idle takes 30–60 s while the instance wakes up. Demo logins are sent separately; seed passwords are GitHub secrets, never committed.
 
